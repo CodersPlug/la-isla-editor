@@ -6,6 +6,9 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>La isla — Editor</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0f0f0f">
+<link rel="apple-touch-icon" href="icon-192.png">
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -54,13 +57,22 @@
     transition: width 0.4s ease;
   }
 
+  .hint {
+    text-align: center;
+    font-size: 13px;
+    color: var(--muted);
+    padding: 14px 20px 2px;
+    font-style: italic;
+  }
+
   .grid {
     display: grid;
-    grid-template-columns: repeat(7, 1fr);
-    gap: 10px;
-    padding: 20px;
-    max-width: 500px;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+    padding: 18px 22px 28px;
+    max-width: 520px;
     margin: 0 auto;
+    touch-action: pan-y;
   }
 
   .node {
@@ -69,26 +81,86 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 14px;
+    font-size: 26px;
     font-weight: 600;
     cursor: pointer;
     border: 2px solid var(--border);
     background: var(--surface);
     color: var(--muted);
-    transition: all 0.15s ease;
+    transition: transform 0.12s ease, border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
     user-select: none;
+    -webkit-user-select: none;
     -webkit-tap-highlight-color: transparent;
   }
-  .node:active { transform: scale(0.92); }
+  .node:active { transform: scale(0.94); }
   .node.annotated {
     border-color: var(--green);
-    background: rgba(76,175,125,0.12);
+    background: rgba(76,175,125,0.14);
     color: var(--green);
   }
   .node.open {
     border-color: var(--accent);
-    background: rgba(200,169,110,0.15);
+    background: rgba(200,169,110,0.18);
     color: var(--accent);
+  }
+  .node.dragging {
+    opacity: 0.25;
+  }
+  .node.ghost {
+    position: fixed;
+    z-index: 300;
+    pointer-events: none;
+    opacity: 0.95;
+    border-color: var(--accent);
+    background: rgba(200,169,110,0.25);
+    color: var(--accent);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+    transform: scale(1.12);
+    margin: 0;
+  }
+
+  /* --- AUDIO --- */
+  .audio-card {
+    margin: 16px 18px 4px;
+    padding: 16px 16px 14px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+  }
+  .audio-card .audio-title {
+    font-size: 13px;
+    color: var(--accent);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 10px;
+    font-family: -apple-system, sans-serif;
+  }
+  .audio-card audio {
+    width: 100%;
+    height: 40px;
+  }
+
+  /* --- SAVE ORDER BAR --- */
+  .order-bar {
+    position: sticky;
+    bottom: 0;
+    z-index: 20;
+    display: none;
+    padding: 12px 18px calc(12px + env(safe-area-inset-bottom));
+    background: linear-gradient(to top, var(--bg) 70%, transparent);
+  }
+  .order-bar.show { display: block; }
+  .order-bar button {
+    width: 100%;
+    padding: 16px;
+    border-radius: 14px;
+    border: none;
+    background: var(--accent);
+    color: #000;
+    font-size: 16px;
+    font-weight: 700;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
   }
 
   /* --- PANEL --- */
@@ -313,11 +385,19 @@
 </header>
 <div class="progress-bar"><div class="progress-fill" id="progress-fill" style="width:0%"></div></div>
 
-<div class="config-banner show" id="config-banner">
-  ⚙️ Pegá tu URL de webhook de Zapier en el archivo — ver instrucciones.
+<div class="audio-card">
+  <div class="audio-title">Escuchar — versión completa</div>
+  <audio id="player" controls preload="metadata" src="la-isla.mp3"></audio>
+  <div id="audio-note" style="display:none;font-size:12px;color:var(--muted);margin-top:8px;font-style:italic;">Audio pendiente de generar.</div>
 </div>
 
+<div class="hint">Tocá un número para anotar · Mantené presionado y arrastrá para reordenar</div>
+
 <div class="grid" id="grid"></div>
+
+<div class="order-bar" id="order-bar">
+  <button id="btn-order" onclick="saveOrder()">Guardar nuevo orden en Google Docs</button>
+</div>
 
 <div class="overlay" id="overlay" onclick="closePanel()"></div>
 
@@ -378,29 +458,139 @@ const PARAGRAPHS = [
 
 // State
 const annotations = JSON.parse(localStorage.getItem('la-isla-annotations') || '{}');
+const DEFAULT_ORDER = Array.from({length: 21}, (_, i) => i + 1);
+let order = JSON.parse(localStorage.getItem('la-isla-order') || 'null');
+if (!Array.isArray(order) || order.length !== 21) order = DEFAULT_ORDER.slice();
 let currentParagraph = null;
 let recognition = null;
 let isRecording = false;
 
-// Build grid
 const grid = document.getElementById('grid');
-for (let i = 1; i <= 21; i++) {
-  const node = document.createElement('div');
-  node.className = 'node' + (annotations[i] ? ' annotated' : '');
-  node.textContent = i;
-  node.id = `node-${i}`;
-  node.onclick = () => openPanel(i);
-  grid.appendChild(node);
+
+function renderGrid() {
+  grid.innerHTML = '';
+  order.forEach((p) => {
+    const node = document.createElement('div');
+    node.className = 'node' + (annotations[p] ? ' annotated' : '');
+    node.textContent = p;
+    node.id = `node-${p}`;
+    node.dataset.p = p;
+    grid.appendChild(node);
+  });
 }
+renderGrid();
 updateProgress();
+refreshOrderBar();
 
 function updateProgress() {
   const count = Object.keys(annotations).length;
   document.getElementById('progress-label').textContent = `${count} / 21 anotados`;
   document.getElementById('progress-fill').style.width = `${(count/21)*100}%`;
-  if (ZAPIER_WEBHOOK !== 'PASTE_ZAPIER_WEBHOOK_URL_HERE') {
-    document.getElementById('config-banner').classList.remove('show');
+}
+
+function refreshOrderBar() {
+  const changed = order.some((p, i) => p !== DEFAULT_ORDER[i]);
+  document.getElementById('order-bar').classList.toggle('show', changed);
+}
+
+// ─── Tap vs. long-press drag (touch + mouse) ─────────────────────────────
+const LONGPRESS_MS = 220;
+const MOVE_THRESHOLD = 10;
+let drag = null;
+
+grid.addEventListener('pointerdown', (e) => {
+  const node = e.target.closest('.node');
+  if (!node) return;
+  const p = +node.dataset.p;
+  const startX = e.clientX, startY = e.clientY;
+
+  let timer = setTimeout(() => { timer = null; beginDrag(node, p, startX, startY); }, LONGPRESS_MS);
+
+  const move = (ev) => {
+    if (drag) { onDragMove(ev); return; }
+    if (Math.hypot(ev.clientX - startX, ev.clientY - startY) > MOVE_THRESHOLD) {
+      if (timer) { clearTimeout(timer); timer = null; }
+      cleanup();
+    }
+  };
+  const up = (ev) => {
+    if (timer) { clearTimeout(timer); timer = null; }
+    if (drag) endDrag();
+    else if (Math.hypot(ev.clientX - startX, ev.clientY - startY) < MOVE_THRESHOLD) openPanel(p);
+    cleanup();
+  };
+  const cleanup = () => {
+    window.removeEventListener('pointermove', move);
+    window.removeEventListener('pointerup', up);
+    window.removeEventListener('pointercancel', up);
+  };
+  window.addEventListener('pointermove', move);
+  window.addEventListener('pointerup', up);
+  window.addEventListener('pointercancel', up);
+});
+
+// Block page scroll only while actively dragging a node
+window.addEventListener('touchmove', (e) => { if (drag) e.preventDefault(); }, { passive: false });
+
+function beginDrag(node, p, x, y) {
+  if (navigator.vibrate) navigator.vibrate(15);
+  const rect = node.getBoundingClientRect();
+  const ghost = node.cloneNode(true);
+  ghost.className = 'node ghost';
+  ghost.style.width = rect.width + 'px';
+  ghost.style.height = rect.height + 'px';
+  ghost.style.left = rect.left + 'px';
+  ghost.style.top = rect.top + 'px';
+  document.body.appendChild(ghost);
+  drag = { p, ghost, offX: x - rect.left, offY: y - rect.top };
+  node.classList.add('dragging');
+}
+
+function onDragMove(ev) {
+  ev.preventDefault();
+  const g = drag.ghost;
+  g.style.left = (ev.clientX - drag.offX) + 'px';
+  g.style.top = (ev.clientY - drag.offY) + 'px';
+  const el = document.elementFromPoint(ev.clientX, ev.clientY);
+  const over = el && el.closest('.node:not(.ghost)');
+  if (over && +over.dataset.p !== drag.p) {
+    const from = order.indexOf(drag.p);
+    const to = order.indexOf(+over.dataset.p);
+    order.splice(from, 1);
+    order.splice(to, 0, drag.p);
+    renderGrid();
+    const moved = grid.querySelector(`[data-p="${drag.p}"]`);
+    if (moved) moved.classList.add('dragging');
   }
+}
+
+function endDrag() {
+  if (drag.ghost) drag.ghost.remove();
+  drag = null;
+  renderGrid();
+  localStorage.setItem('la-isla-order', JSON.stringify(order));
+  refreshOrderBar();
+}
+
+async function saveOrder() {
+  const btn = document.getElementById('btn-order');
+  btn.textContent = 'Guardando…';
+  btn.disabled = true;
+  const payload = {
+    chapter: CHAPTER,
+    version: VERSION,
+    paragraph: 'ORDEN',
+    annotation: 'Nuevo orden propuesto de párrafos: ' + order.join(' → '),
+    timestamp: new Date().toLocaleString('es-AR', {timeZone: 'America/Argentina/Buenos_Aires'})
+  };
+  let ok = false;
+  try {
+    await fetch(ZAPIER_WEBHOOK, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) });
+    ok = true;
+  } catch (e) { console.error(e); }
+  btn.textContent = 'Guardar nuevo orden en Google Docs';
+  btn.disabled = false;
+  showToast(ok ? '✓ Orden enviado a Google Docs' : '✓ Orden guardado localmente');
 }
 
 function openPanel(n) {
@@ -523,6 +713,17 @@ function showToast(msg, isError = false) {
   t.textContent = msg;
   t.className = 'toast show' + (isError ? ' error' : '');
   setTimeout(() => t.className = 'toast', 2800);
+}
+
+// Show a note if the audio file isn't available yet
+document.getElementById('player').addEventListener('error', () => {
+  document.getElementById('player').style.display = 'none';
+  document.getElementById('audio-note').style.display = 'block';
+});
+
+// PWA service worker
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(console.error));
 }
 </script>
 </body>
