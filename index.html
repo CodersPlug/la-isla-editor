@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>La isla — Editor</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0f0f0f;
+    --surface: #1a1a1a;
+    --surface2: #242424;
+    --border: #2e2e2e;
+    --text: #e8e8e8;
+    --muted: #888;
+    --accent: #c8a96e;
+    --green: #4caf7d;
+    --red: #e05252;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, 'Georgia', serif;
+    min-height: 100vh;
+    overscroll-behavior: none;
+  }
+
+  header {
+    padding: 20px 20px 12px;
+    border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    background: var(--bg);
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  header h1 { font-size: 17px; font-weight: 600; letter-spacing: 0.02em; color: var(--accent); }
+  header span { font-size: 12px; color: var(--muted); }
+
+  .progress-bar {
+    height: 2px;
+    background: var(--border);
+    margin: 0;
+  }
+  .progress-fill {
+    height: 100%;
+    background: var(--accent);
+    transition: width 0.4s ease;
+  }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 10px;
+    padding: 20px;
+    max-width: 500px;
+    margin: 0 auto;
+  }
+
+  .node {
+    aspect-ratio: 1;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    border: 2px solid var(--border);
+    background: var(--surface);
+    color: var(--muted);
+    transition: all 0.15s ease;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .node:active { transform: scale(0.92); }
+  .node.annotated {
+    border-color: var(--green);
+    background: rgba(76,175,125,0.12);
+    color: var(--green);
+  }
+  .node.open {
+    border-color: var(--accent);
+    background: rgba(200,169,110,0.15);
+    color: var(--accent);
+  }
+
+  /* --- PANEL --- */
+  .overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.7);
+    z-index: 100;
+    backdrop-filter: blur(4px);
+  }
+  .overlay.active { display: block; }
+
+  .panel {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    max-height: 88vh;
+    background: var(--surface);
+    border-radius: 20px 20px 0 0;
+    z-index: 101;
+    transform: translateY(100%);
+    transition: transform 0.3s cubic-bezier(0.32,0.72,0,1);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .panel.active { transform: translateY(0); }
+
+  .panel-handle {
+    width: 36px;
+    height: 4px;
+    background: var(--border);
+    border-radius: 2px;
+    margin: 12px auto 4px;
+    flex-shrink: 0;
+  }
+
+  .panel-header {
+    padding: 8px 20px 12px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-shrink: 0;
+  }
+  .panel-header h2 {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--accent);
+    font-style: italic;
+  }
+  .btn-close {
+    background: none;
+    border: none;
+    color: var(--muted);
+    font-size: 22px;
+    cursor: pointer;
+    padding: 0 4px;
+    line-height: 1;
+  }
+
+  .panel-body {
+    overflow-y: auto;
+    padding: 16px 20px;
+    flex: 1;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .para-text {
+    font-size: 14px;
+    line-height: 1.65;
+    color: #bbb;
+    font-style: italic;
+    padding: 12px 14px;
+    background: var(--surface2);
+    border-radius: 10px;
+    margin-bottom: 16px;
+    border-left: 3px solid var(--accent);
+  }
+
+  .annotation-label {
+    font-size: 12px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 8px;
+  }
+
+  .annotation-input {
+    width: 100%;
+    min-height: 90px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    color: var(--text);
+    font-size: 15px;
+    font-family: -apple-system, sans-serif;
+    padding: 12px;
+    resize: none;
+    outline: none;
+    transition: border-color 0.2s;
+    line-height: 1.5;
+  }
+  .annotation-input:focus { border-color: var(--accent); }
+  .annotation-input::placeholder { color: var(--muted); }
+
+  .voice-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 12px;
+  }
+
+  .btn-voice {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    border: 2px solid var(--border);
+    background: var(--surface2);
+    color: var(--muted);
+    font-size: 22px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    transition: all 0.2s;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .btn-voice.recording {
+    border-color: var(--red);
+    background: rgba(224,82,82,0.15);
+    color: var(--red);
+    animation: pulse 1.2s infinite;
+  }
+  @keyframes pulse {
+    0%,100% { box-shadow: 0 0 0 0 rgba(224,82,82,0.4); }
+    50% { box-shadow: 0 0 0 8px rgba(224,82,82,0); }
+  }
+
+  .voice-status {
+    font-size: 13px;
+    color: var(--muted);
+    font-style: italic;
+  }
+  .voice-status.recording { color: var(--red); }
+
+  .panel-footer {
+    padding: 12px 20px 28px;
+    border-top: 1px solid var(--border);
+    flex-shrink: 0;
+    display: flex;
+    gap: 10px;
+  }
+
+  .btn {
+    flex: 1;
+    padding: 14px;
+    border-radius: 12px;
+    border: none;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity 0.15s;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .btn:active { opacity: 0.7; }
+  .btn-primary {
+    background: var(--accent);
+    color: #000;
+  }
+  .btn-secondary {
+    background: var(--surface2);
+    color: var(--muted);
+    border: 1px solid var(--border);
+  }
+
+  .toast {
+    position: fixed;
+    bottom: 100px;
+    left: 50%;
+    transform: translateX(-50%) translateY(20px);
+    background: var(--green);
+    color: #000;
+    padding: 10px 20px;
+    border-radius: 20px;
+    font-size: 14px;
+    font-weight: 600;
+    opacity: 0;
+    transition: all 0.3s;
+    z-index: 200;
+    pointer-events: none;
+    white-space: nowrap;
+  }
+  .toast.show {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+  .toast.error { background: var(--red); }
+
+  .config-banner {
+    margin: 16px;
+    padding: 12px 16px;
+    background: rgba(200,169,110,0.1);
+    border: 1px solid var(--accent);
+    border-radius: 10px;
+    font-size: 13px;
+    color: var(--accent);
+    text-align: center;
+    display: none;
+  }
+  .config-banner.show { display: block; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>La isla</h1>
+  <span id="progress-label">0 / 21 anotados</span>
+</header>
+<div class="progress-bar"><div class="progress-fill" id="progress-fill" style="width:0%"></div></div>
+
+<div class="config-banner show" id="config-banner">
+  ⚙️ Pegá tu URL de webhook de Zapier en el archivo — ver instrucciones.
+</div>
+
+<div class="grid" id="grid"></div>
+
+<div class="overlay" id="overlay" onclick="closePanel()"></div>
+
+<div class="panel" id="panel">
+  <div class="panel-handle"></div>
+  <div class="panel-header">
+    <h2 id="panel-title">Párrafo 1</h2>
+    <button class="btn-close" onclick="closePanel()">×</button>
+  </div>
+  <div class="panel-body">
+    <div class="para-text" id="para-text"></div>
+    <div class="annotation-label">Tu anotación</div>
+    <textarea class="annotation-input" id="annotation-input"
+      placeholder="Escribí tu feedback sobre este párrafo…"></textarea>
+    <div class="voice-row">
+      <button class="btn-voice" id="btn-voice" onclick="toggleVoice()">🎙</button>
+      <span class="voice-status" id="voice-status">Mantené para dictar</span>
+    </div>
+  </div>
+  <div class="panel-footer">
+    <button class="btn btn-secondary" onclick="closePanel()">Cancelar</button>
+    <button class="btn btn-primary" id="btn-save" onclick="saveAnnotation()">Guardar</button>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ─── CONFIG ──────────────────────────────────────────────────────────────
+const ZAPIER_WEBHOOK = 'PASTE_ZAPIER_WEBHOOK_URL_HERE';
+const CHAPTER = 'Cap 1';
+const VERSION = 'v13';
+// ─────────────────────────────────────────────────────────────────────────
+
+const PARAGRAPHS = [
+  "Dejáme empezar por donde importa, no por donde se debe. No por la isla, ni por el mediodía de febrero, tampoco por la lancha cargada de valijas y cosas no dichas. Mirá, empecemos por el sauce, que es lo único que al final quedó en pie.",
+  "La corteza — áspera, firme, sin condiciones — me marca la espalda a través de la camisa. Las manos de ella deciden la despedida por los dos. El aire huele a barro, a agua dulce, a verde recalentado. Un tábano zumba insistente cerca de mi oreja. La luz cae filtrada, verde, submarina, esa luz de claro que vuelve lento todo lo que toca. Y por una vez estoy entero adentro de mi cuerpo, sin la cabeza tironeando para otro lado.",
+  "Vas a pensar que exagero. Un hombre y una mujer en una isla, qué novedad. Y tenés razón: novedad, ninguna. Esta historia es más vieja que el río. Pero fijate una cosa: a mi edad uno ya no gasta saliva en historias que no queman. Si este viejo se sienta a perder una de sus últimas tardes contándote justo esta, y no otra, por algo será. Quedáte hasta el final. Ahí está la única novedad que te puedo prometer.",
+  "A mí me educaron para ordenar el mundo, ¿viste? Esto está bien, esto está mal; las manos se juntan para rezar y se sueltan para trabajar. Nadie me explicó que esas manos podían servir para otra cosa. Eso lo vine a aprender después, a escondidas, una noche abajo de un puente, a los veinte años.",
+  "Afuera yo era un hombre bueno, si hay alguien bueno en este lugar. Era lo último que me había quedado de mi fe: el control. Y atrás del control, una orden más vieja y más terca — hacer cosas grandes, demostrarle a mi viejo que yo era inteligente, que valía el apellido que me había puesto. Lo cargaba afuera como se carga una valija pesada: con cuidado, sin que nadie te vea el esfuerzo. Y nunca alcanzaba. Era como el chico que quiere meter todo el mar en un pocito cavado en la arena: cuanta más agua trae, más rápido se le va. En eso se me fue la vida de afuera. A la isla no llegaba esa orden, ni el control ni el apellido. No sé si se quedaban atados a la lancha o se hundían a mitad del río. El agua se encargaba, y mejor así.",
+  "Ella, en cambio, vuelve a florecer apenas pisa la isla. La belleza no le viene del cuerpo — bueno, del cuerpo también, no nos hagamos los santos —; le viene de no rendirle cuentas a esos mandatos. Esa libertad que yo no tengo y que le envidio, aunque envidia capaz no es la palabra justa. Para ella nunca encontré las palabras, esa es la verdad. Y ahora me provoca con cosas mínimas y exactas: se adelanta unos pasos para dejarse ver, se demora al cruzar un tronco caído para obligarme a sostenerla, deja que la camisa se le abra por el calor y para mi beneficio.",
+  "Disculpá, me voy por las ramas. Me pasa siempre que vuelvo a la isla — y volví muchas veces, aunque del otro lado del agua ya no me espere nadie. De la isla podés irte cuando quieras; lo que no podés es dejarla. Eso lo aprendí tarde. Te decía: esa tarde de febrero. Es de esas tardes que pesan. El aire está quieto de un modo que parece a propósito. Demasiado verde, demasiado callado. Una tarde hecha para no pensar en las consecuencias. Y a mí me asusta esta levedad rara, este nudo viejo en el pecho que se va soltando hilo por hilo sin pedirme permiso. Me asusta, sobre todo, cuánto la deseo.",
+  "Le desabrocho la camisa despacio, buscándola en sus ojos. ¿Con qué versión de ella me encontraré? ¿Hoy estará bien desabrocharle la camisa? Sí, en el sauce está bien. Y entonces no es esta camisa, sino la otra, la que le quedaba grande. No es el claro de luces submarinas, sino aquel hueco de sombra bajo el puente. La tela se vuelve más áspera bajo mis dedos, como el algodón gastado de aquella noche de domingo.",
+  "Salimos de misa. No recuerdo la homilía; ya entonces eran todas la misma. Recuerdo lo otro: el incienso espeso que se metía en la ropa y no se iba en todo el día, las rodillas contra la madera del reclinatorio, el murmullo de las letanías que sonaban a promesa. Recuerdo la hostia deshaciéndose en la lengua y, al lado, su mano en el banco, a dos centímetros de la mía, más prohibida que cualquier pecado que nombrara el cura. Comulgábamos con la boca y nos buscábamos con los dedos. Caminamos hacia la noche de verano todavía mareados, con ese humo dulce pegado a la ropa, y nos desviamos sin decir nada, para tocarnos con las mismas manos con las que diez minutos antes nos habíamos persignado.",
+  "Esa noche, sin ruido, sin trueno, la Fe se me volvió fe. Así, en minúscula. No solo perdí a Dios; perdí algo más mundano: una manera de tener el mundo ordenado. Y yo necesitaba el mundo ordenado para poder vivirlo. Lo que vino a ocupar el lugar del altar no fue una idea. Fue su piel. Un rito nuevo, sin homilía, sin notas al pie: la comunión éramos nosotros.",
+  "Lo que no sabía esa noche es que ya no iba a volver a ser el mismo. Lo intenté, eh. Caminé de vuelta por las mismas veredas, dije las mismas palabras de siempre. No funcionó. Algo se había partido, y ese fue el principio de todo. El fin de todo. Las dos cosas, al mismo tiempo, que con el tiempo aprendí que suelen venir juntas.",
+  "Te vas a reír. O no, andá a saber — sos joven todavía, capaz te parece grave, y mirá que te entiendo. Yo a tu edad también me reía de los viejos que se ponían trágicos con estas cosas. A mí, desde acá, me parecen las dos cosas a la vez: lo más serio que me pasó en la vida y una pavada de dos pibes abajo de un puente. Con los años uno descubre que las dos cosas pueden ser verdad juntas, y que ahí está casi todo el chiste. Y descubre también, el muy idiota, que a pesar de los años se sigue cayendo en las mismas trampas, con las mismas ganas.",
+  "Mis manos repiten en el sauce el gesto exacto que aprendieron a escondidas veinte años antes. Y el duelo de siempre: dos voluntades tanteándose en la penumbra verde, quién cede primero, quién pide más, quién finge mejor que puede alargar el juego un poco más. Esta vez es ella la que pierde. Así confirmo con qué versión de ella me toca esta tarde — nunca lo dice; lo deja leer en ese idioma de manos. Pierde con una elegancia que tendría que haberme hecho sospechar. Pero esa tarde yo no estaba para sospechas.",
+  "Le digo amor y capaz me quedo corto. A mí me enseñaron el de las estampitas, el que se mira y no se toca — amor platónico, le dicen los que saben. El mío nunca supo quedarse en mirar. Me agarra por los ojos y se me va derecho al cuerpo: una luz buena, un río manso, una cara linda me desarman igual. La belleza me puede, qué querés que le haga; y la de una mujer, más que ninguna. No es lo más noble del mundo, ya sé. Pero fue mi manera de rezar cuando me quedé sin iglesia: mirándola a ella. Lo que sentía no prometía nada, no venía con casa ni con domingos. Tenía hambre. Tenía urgencia. Tenía algo parecido al miedo, pero más dulce. Yo tenía un solo idioma para eso, fijate, y en ese idioma la palabra amor no se decía.",
+  "Hay un instante en que el claro se queda quieto del todo. El río baja la voz, el sauce deja de moverse, hasta el tábano se calla. Como si la isla contuviera el aliento. Mi cuerpo lo sabe antes que yo: la piel se afina, el oído se estira, algo en la nuca se pone de guardia. Algo viene.",
+  "Ella se arrima. Y mis manos van solas adonde saben ir: a esa marca que tiene en la piel, en un lugar que no te voy a decir, que el mundo entero le desconoce y yo no. La encuentro sin mirar, como se encuentra de noche el interruptor de la propia casa. Mi cuerpo la reconoce antes que mi alma — y con ella, el olor de siempre, el que no se parece a ningún otro. Ahí hay una promesa que nunca hicimos en voz alta y que sin embargo cumplimos los dos, con una fidelidad que no supimos sostener en ninguna otra cosa de la vida. La reconozco como se reconoce una casa que fue hogar: sin mirar, con las manos.",
+  "Ahí, con la mano en su piel, no soy un hombre de cuarenta partido entre el deber y el ser, ni ella una mujer buscando la prueba de que todavía enciende incendios. Somos dos cuerpos jóvenes que nunca aprendieron a tener un lugar. Porque eso fuimos siempre, te lo tengo que explicar: a los veinte nos quedábamos horas en las paradas de colectivo, intentando despedirnos, y perdíamos el de las diez, el de las once, las doce, la una. El cuerpo no entendía de horarios. Nunca tuvimos una cama propia en veinte años. No nos hizo falta. O no nos dejaron; con el tiempo dejé de saber la diferencia. Por eso estoy de pie, contra el sauce, como en todas las paradas donde nunca terminamos de irnos.",
+  "Lo que viene nos llega casi sin ruido. Nos contenemos por costumbre, como si el mundo todavía pudiera castigarnos por desearnos tanto: la costumbre del silencio, lo único que nos trajimos de contrabando desde el otro lado. Y hay un instante exacto — lo recuerdo con una precisión que no merezco — en que los dos soltamos todo. No el uno al otro. Lo otro: el cuidado, el control, la historia que cada uno cargaba. Por un momento somos solo cuerpo. Lo esperábamos, lo dábamos por descontado, y era cada vez la primera vez. Y mirá, tardé media vida en darme cuenta de que eso no era lo normal; que en otros cuerpos, en otras camas, esa caída no venía incluida. Era de ella y mía, de nadie más. Hay algo religioso en saberse elegido para una cosa así — una trascendencia de bolsillo, si querés, pero trascendencia al fin. Por entonces empecé a entender las letras tristes de las canciones. Más tarde, a escribirlas. Fue suficiente. Fue demasiado.",
+  "Después nos quedamos quietos, las pieles enfriándose, el río indiferente arrastrando ramas y luz. Lo que acababa de pasar no era solo deseo: era la prueba de que ese hombre — el del puente, el de las paradas, el que sabía caer — todavía existía en algún pliegue mío. A eso iba yo a la isla, te lo confieso ahora que lo veo claro, con esa claridad molesta de cuando uno ya no tiene nada que defender: la usaba a ella de espejo, para confirmarlo. Y sí, ya sé, no es lo más honrado que uno puede hacerle a otro. Pero qué querés que te diga. Es lo que hice, y a esta altura no voy a andar mintiéndote, justo a vos. Sospecho que ella lo sabía desde antes, y que eligió ser el espejo igual. No por debilidad. Por algo más parecido a la generosidad, o a la crueldad — nunca terminé de saber cuál de las dos.",
+  "De este amor no se vive. Eso también lo sé, aunque me costó años confesármelo: con ella no se podía, y sin ella tampoco aprendí nunca. Hace rato que dejé de pelearle. A esta altura me limito a llorarlo cuando me agarran ciertas canciones. No te voy a decir por qué fue la última tarde. Contado así, a secas, parece una pavada, y no lo fue. Las cosas que lo rompen a uno casi nunca tienen el tamaño del daño que hacen. La lancha ya estaba por llegar y no había próxima vez; lo intuíamos los dos, como se intuye un cambio de tiempo en el aire. Ella me busca la mano y me la aprieta fuerte, sin mirarme, los ojos clavados en el agua. No decimos nada. Nunca nos hizo falta, y esa fue la gloria y fue la condena. Atrás quedaba el sauce: el único que nos vio enteros, el único que no nos pidió explicaciones. Por eso empecé por ahí. De ella no me quedó la cara; no me quedaron los años. Me quedó eso.",
+  "El refugio era hermoso justamente porque era prestado, y lo prestado hay que devolverlo."
+];
+
+// State
+const annotations = JSON.parse(localStorage.getItem('la-isla-annotations') || '{}');
+let currentParagraph = null;
+let recognition = null;
+let isRecording = false;
+
+// Build grid
+const grid = document.getElementById('grid');
+for (let i = 1; i <= 21; i++) {
+  const node = document.createElement('div');
+  node.className = 'node' + (annotations[i] ? ' annotated' : '');
+  node.textContent = i;
+  node.id = `node-${i}`;
+  node.onclick = () => openPanel(i);
+  grid.appendChild(node);
+}
+updateProgress();
+
+function updateProgress() {
+  const count = Object.keys(annotations).length;
+  document.getElementById('progress-label').textContent = `${count} / 21 anotados`;
+  document.getElementById('progress-fill').style.width = `${(count/21)*100}%`;
+  if (ZAPIER_WEBHOOK !== 'PASTE_ZAPIER_WEBHOOK_URL_HERE') {
+    document.getElementById('config-banner').classList.remove('show');
+  }
+}
+
+function openPanel(n) {
+  currentParagraph = n;
+  document.getElementById('panel-title').textContent = `Párrafo ${n}`;
+  document.getElementById('para-text').textContent = PARAGRAPHS[n - 1];
+  document.getElementById('annotation-input').value = annotations[n] || '';
+  document.getElementById('overlay').classList.add('active');
+  document.getElementById('panel').classList.add('active');
+  document.getElementById(`node-${n}`).classList.add('open');
+  setTimeout(() => document.getElementById('annotation-input').focus(), 350);
+}
+
+function closePanel() {
+  if (currentParagraph) document.getElementById(`node-${currentParagraph}`).classList.remove('open');
+  document.getElementById('overlay').classList.remove('active');
+  document.getElementById('panel').classList.remove('active');
+  stopVoice();
+  currentParagraph = null;
+}
+
+async function saveAnnotation() {
+  const text = document.getElementById('annotation-input').value.trim();
+  if (!text) { showToast('Escribí algo primero', true); return; }
+
+  const btn = document.getElementById('btn-save');
+  btn.textContent = 'Guardando…';
+  btn.disabled = true;
+
+  const payload = {
+    chapter: CHAPTER,
+    version: VERSION,
+    paragraph: currentParagraph,
+    annotation: text,
+    timestamp: new Date().toLocaleString('es-AR', {timeZone: 'America/Argentina/Buenos_Aires'})
+  };
+
+  let saved = false;
+  if (ZAPIER_WEBHOOK !== 'PASTE_ZAPIER_WEBHOOK_URL_HERE') {
+    try {
+      await fetch(ZAPIER_WEBHOOK, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload)
+      });
+      saved = true;
+    } catch(e) {
+      console.error(e);
+    }
+  }
+
+  // Always save locally
+  annotations[currentParagraph] = text;
+  localStorage.setItem('la-isla-annotations', JSON.stringify(annotations));
+  document.getElementById(`node-${currentParagraph}`).classList.add('annotated');
+  document.getElementById(`node-${currentParagraph}`).classList.remove('open');
+  updateProgress();
+
+  btn.textContent = 'Guardar';
+  btn.disabled = false;
+
+  showToast(saved ? '✓ Enviado a Google Docs' : '✓ Guardado localmente');
+  closePanel();
+}
+
+// Voice (Web Speech API)
+function toggleVoice() {
+  if (isRecording) { stopVoice(); return; }
+  if (!('SpeechRecognition' in window || 'webkitSpeechRecognition' in window)) {
+    showToast('Voz no disponible en este browser', true);
+    return;
+  }
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  recognition = new SR();
+  recognition.lang = 'es-AR';
+  recognition.continuous = true;
+  recognition.interimResults = true;
+
+  const input = document.getElementById('annotation-input');
+  const base = input.value;
+
+  recognition.onresult = (e) => {
+    let interim = '';
+    let final = base;
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      if (e.results[i].isFinal) final += e.results[i][0].transcript + ' ';
+      else interim = e.results[i][0].transcript;
+    }
+    input.value = final + interim;
+  };
+
+  recognition.onerror = () => stopVoice();
+  recognition.onend = () => { if (isRecording) recognition.start(); };
+
+  recognition.start();
+  isRecording = true;
+  document.getElementById('btn-voice').classList.add('recording');
+  document.getElementById('btn-voice').textContent = '⏹';
+  document.getElementById('voice-status').textContent = 'Grabando… tocá para detener';
+  document.getElementById('voice-status').classList.add('recording');
+}
+
+function stopVoice() {
+  if (recognition) { recognition.stop(); recognition = null; }
+  isRecording = false;
+  const btn = document.getElementById('btn-voice');
+  if (btn) {
+    btn.classList.remove('recording');
+    btn.textContent = '🎙';
+  }
+  const status = document.getElementById('voice-status');
+  if (status) {
+    status.textContent = 'Mantené para dictar';
+    status.classList.remove('recording');
+  }
+}
+
+function showToast(msg, isError = false) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast show' + (isError ? ' error' : '');
+  setTimeout(() => t.className = 'toast', 2800);
+}
+</script>
+</body>
+</html>
