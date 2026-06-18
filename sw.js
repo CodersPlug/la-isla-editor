@@ -1,10 +1,11 @@
-const CACHE = 'la-isla-v2';
+const CACHE = 'la-isla-v3';
 const ASSETS = [
   './',
   './index.html',
   './manifest.json',
   './icon-192.png',
-  './icon-512.png'
+  './icon-512.png',
+  './la-isla.mp3'
 ];
 
 self.addEventListener('install', (e) => {
